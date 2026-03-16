@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Save, Loader2, UserPlus, Upload, Download, Sliders, Play, Activity, MessageSquare } from 'lucide-react';
 import { VoiceCloneService } from './VoiceCloneService';
 import { ClonedVoice } from './types';
+import { LocalTTSEngine } from '../services/LocalTTSEngine';
 
 interface VoiceAnalysisReport {
   gender: string;
@@ -17,13 +18,10 @@ interface VoiceAnalysisReport {
 interface VoiceCloningManagerProps {
   onVoiceAdded: (voice: ClonedVoice) => void;
   clonedVoices: ClonedVoice[];
-  onTestVoice: (text: string, baseVoice: string) => Promise<string | null>;
   onAnalyzeAudio?: (audioBlob: Blob) => Promise<VoiceAnalysisReport>;
 }
 
-const PREBUILT_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
-
-export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTestVoice, onAnalyzeAudio }: VoiceCloningManagerProps) {
+export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onAnalyzeAudio }: VoiceCloningManagerProps) {
   const [voiceName, setVoiceName] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -34,11 +32,27 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
   const [analysisReport, setAnalysisReport] = useState<VoiceAnalysisReport | null>(null);
 
   // הגדרות עיצוב קול
-  const [baseVoice, setBaseVoice] = useState('Kore');
+  const [baseVoice, setBaseVoice] = useState('');
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [pitch, setPitch] = useState(1);
   const [speed, setSpeed] = useState(1);
-  const [bass, setBass] = useState(0);
-  const [treble, setTreble] = useState(0);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = LocalTTSEngine.getVoices();
+      setAvailableVoices(voices);
+      if (voices.length > 0 && !baseVoice) {
+        // Default to a Hebrew voice if available, else the first one
+        const heVoice = voices.find(v => v.lang.startsWith('he'));
+        setBaseVoice(heVoice ? heVoice.name : voices[0].name);
+      }
+    };
+    
+    loadVoices();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -46,16 +60,9 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
   const previewAudioRef = useRef<HTMLAudioElement>(null);
 
   // הגדרות בדיקת קול
-  const [testText, setTestText] = useState('Hello, this is a test of my new voice.');
+  const [testText, setTestText] = useState('שלום, זוהי בדיקה של הקול החדש שלי.');
   const [isTesting, setIsTesting] = useState(false);
-  const [testAudioUrl, setTestAudioUrl] = useState<string | null>(null);
   
-  const testAudioRef = useRef<HTMLAudioElement>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const bassNodeRef = useRef<BiquadFilterNode | null>(null);
-  const trebleNodeRef = useRef<BiquadFilterNode | null>(null);
-
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -145,60 +152,22 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
     }
   }, [speed, pitch, recordedBlob]);
 
-  // החלת אפקטים על שמע הבדיקה (TTS)
-  useEffect(() => {
-    if (testAudioRef.current) {
-      testAudioRef.current.playbackRate = speed;
-      // @ts-ignore
-      testAudioRef.current.preservesPitch = pitch === 1;
-      if (pitch !== 1) {
-        testAudioRef.current.playbackRate = speed * pitch;
-      }
-      if (bassNodeRef.current && trebleNodeRef.current) {
-        bassNodeRef.current.gain.value = bass;
-        trebleNodeRef.current.gain.value = treble;
-      }
-    }
-  }, [testAudioUrl, speed, pitch, bass, treble]);
-
-  const setupAudioGraph = () => {
-    if (!audioCtxRef.current && testAudioRef.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioCtxRef.current = new AudioContextClass();
-
-      bassNodeRef.current = audioCtxRef.current.createBiquadFilter();
-      bassNodeRef.current.type = 'lowshelf';
-      bassNodeRef.current.frequency.value = 200;
-
-      trebleNodeRef.current = audioCtxRef.current.createBiquadFilter();
-      trebleNodeRef.current.type = 'highshelf';
-      trebleNodeRef.current.frequency.value = 3000;
-
-      sourceNodeRef.current = audioCtxRef.current.createMediaElementSource(testAudioRef.current);
-
-      sourceNodeRef.current
-        .connect(bassNodeRef.current)
-        .connect(trebleNodeRef.current)
-        .connect(audioCtxRef.current.destination);
-    }
-    if (audioCtxRef.current?.state === 'suspended') {
-      audioCtxRef.current.resume();
-    }
-  };
-
   const handleTestPlay = async () => {
     if (!testText.trim()) return;
     setIsTesting(true);
-    setTestAudioUrl(null);
-    try {
-      const url = await onTestVoice(testText, baseVoice);
-      if (url) setTestAudioUrl(url);
-    } catch (error) {
-      console.error(error);
-      alert('שגיאה ביצירת שמע לבדיקה.');
-    } finally {
-      setIsTesting(false);
-    }
+    
+    LocalTTSEngine.speak(testText, {
+      voiceName: baseVoice,
+      pitch: pitch,
+      rate: speed,
+      onStart: () => setIsTesting(true),
+      onEnd: () => setIsTesting(false),
+      onError: (e) => {
+        console.error(e);
+        alert(e.message || 'שגיאה ביצירת שמע לבדיקה.');
+        setIsTesting(false);
+      }
+    });
   };
 
   const handleCloneVoice = async () => {
@@ -215,9 +184,7 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
         ...newVoice,
         baseVoice,
         pitch,
-        speed,
-        bass,
-        treble
+        speed
       };
 
       onVoiceAdded(customVoice);
@@ -225,8 +192,6 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
       setRecordedBlob(null);
       setPitch(1);
       setSpeed(1);
-      setBass(0);
-      setTreble(0);
     } catch (error) {
       console.error('Error cloning voice:', error);
       alert('אירעה שגיאה ביצירת פרופיל הקול.');
@@ -264,21 +229,17 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-stone-700">קול בסיס (Base Voice):</label>
-              <div className="grid grid-cols-5 gap-2">
-                {PREBUILT_VOICES.map(v => (
-                  <button
-                    key={v}
-                    onClick={() => setBaseVoice(v)}
-                    className={`py-2 text-xs font-medium rounded-lg transition-all ${
-                      baseVoice === v 
-                        ? 'bg-indigo-600 text-white shadow-sm' 
-                        : 'bg-white text-stone-600 border border-stone-200 hover:bg-stone-50'
-                    }`}
-                  >
-                    {v}
-                  </button>
+              <select
+                value={baseVoice}
+                onChange={(e) => setBaseVoice(e.target.value)}
+                className="w-full p-2 bg-white border border-stone-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              >
+                {availableVoices.map(v => (
+                  <option key={v.name} value={v.name}>
+                    {v.name} ({v.lang})
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
 
             <div className="grid sm:grid-cols-2 gap-6">
@@ -311,36 +272,6 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-6 pt-4 border-t border-indigo-100/50">
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-stone-700">תדרים נמוכים (Bass)</label>
-                  <span className="text-xs text-stone-500">{bass > 0 ? '+' : ''}{bass} dB</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="-15" max="15" step="1" 
-                  value={bass} 
-                  onChange={(e) => setBass(parseFloat(e.target.value))}
-                  className="w-full accent-indigo-600"
-                />
-              </div>
-              
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <label className="text-sm font-medium text-stone-700">תדרים גבוהים (Treble)</label>
-                  <span className="text-xs text-stone-500">{treble > 0 ? '+' : ''}{treble} dB</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="-15" max="15" step="1" 
-                  value={treble} 
-                  onChange={(e) => setTreble(parseFloat(e.target.value))}
-                  className="w-full accent-indigo-600"
-                />
-              </div>
-            </div>
-
             {/* Test Voice Section */}
             <div className="pt-4 border-t border-indigo-100/50 space-y-3">
               <label className="text-sm font-medium text-stone-700">בדיקת הקול בזמן אמת:</label>
@@ -349,9 +280,8 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
                   type="text"
                   value={testText}
                   onChange={(e) => setTestText(e.target.value)}
-                  placeholder="Type something in English to test..."
+                  placeholder="הקלד משהו לבדיקה..."
                   className="flex-1 p-2 text-sm bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                  dir="ltr"
                 />
                 <button
                   onClick={handleTestPlay}
@@ -361,19 +291,16 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
                   {isTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
                   בדוק
                 </button>
+                {isTesting && (
+                  <button
+                    onClick={() => LocalTTSEngine.stop()}
+                    className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <Square className="w-4 h-4 fill-current" />
+                    עצור
+                  </button>
+                )}
               </div>
-              {testAudioUrl && (
-                <div className="mt-2 animate-in fade-in">
-                  <audio 
-                    ref={testAudioRef} 
-                    src={testAudioUrl} 
-                    controls 
-                    autoPlay 
-                    onPlay={setupAudioGraph}
-                    className="w-full h-10" 
-                  />
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -515,7 +442,6 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
               <ClonedVoiceItem 
                 key={voice.id} 
                 voice={voice} 
-                onTestVoice={onTestVoice} 
               />
             ))}
           </div>
@@ -527,73 +453,27 @@ export default function VoiceCloningManager({ onVoiceAdded, clonedVoices, onTest
 
 interface ClonedVoiceItemProps {
   voice: ClonedVoice;
-  onTestVoice: (text: string, baseVoice: string) => Promise<string | null>;
 }
 
-const ClonedVoiceItem: React.FC<ClonedVoiceItemProps> = ({ voice, onTestVoice }) => {
+const ClonedVoiceItem: React.FC<ClonedVoiceItemProps> = ({ voice }) => {
   const [textToRead, setTextToRead] = useState('');
   const [isReading, setIsReading] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const bassNodeRef = useRef<BiquadFilterNode | null>(null);
-  const trebleNodeRef = useRef<BiquadFilterNode | null>(null);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = voice.speed || 1;
-      // @ts-ignore
-      audioRef.current.preservesPitch = (voice.pitch || 1) === 1;
-      if ((voice.pitch || 1) !== 1) {
-        audioRef.current.playbackRate = (voice.speed || 1) * (voice.pitch || 1);
-      }
-      if (bassNodeRef.current && trebleNodeRef.current) {
-        bassNodeRef.current.gain.value = voice.bass || 0;
-        trebleNodeRef.current.gain.value = voice.treble || 0;
-      }
-    }
-  }, [audioUrl, voice]);
-
-  const setupAudioGraph = () => {
-    if (!audioCtxRef.current && audioRef.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioCtxRef.current = new AudioContextClass();
-
-      bassNodeRef.current = audioCtxRef.current.createBiquadFilter();
-      bassNodeRef.current.type = 'lowshelf';
-      bassNodeRef.current.frequency.value = 200;
-
-      trebleNodeRef.current = audioCtxRef.current.createBiquadFilter();
-      trebleNodeRef.current.type = 'highshelf';
-      trebleNodeRef.current.frequency.value = 3000;
-
-      sourceNodeRef.current = audioCtxRef.current.createMediaElementSource(audioRef.current);
-
-      sourceNodeRef.current
-        .connect(bassNodeRef.current)
-        .connect(trebleNodeRef.current)
-        .connect(audioCtxRef.current.destination);
-    }
-    if (audioCtxRef.current?.state === 'suspended') {
-      audioCtxRef.current.resume();
-    }
-  };
 
   const handleReadText = async () => {
     if (!textToRead.trim()) return;
-    setIsReading(true);
-    setAudioUrl(null);
-    try {
-      const url = await onTestVoice(textToRead, voice.baseVoice || 'Kore');
-      if (url) setAudioUrl(url);
-    } catch (error) {
-      console.error(error);
-      alert('שגיאה ביצירת שמע.');
-    } finally {
-      setIsReading(false);
-    }
+    
+    LocalTTSEngine.speak(textToRead, {
+      voiceName: voice.baseVoice,
+      pitch: voice.pitch,
+      rate: voice.speed,
+      onStart: () => setIsReading(true),
+      onEnd: () => setIsReading(false),
+      onError: (e) => {
+        console.error(e);
+        alert(e.message || 'שגיאה ביצירת שמע.');
+        setIsReading(false);
+      }
+    });
   };
 
   return (
@@ -602,7 +482,7 @@ const ClonedVoiceItem: React.FC<ClonedVoiceItemProps> = ({ voice, onTestVoice })
         <div>
           <span className="font-semibold text-indigo-900 block text-lg">{voice.name}</span>
           <span className="text-xs text-stone-500 font-mono mt-1 block">
-            Base: {voice.baseVoice} | Speed: {voice.speed}x | Pitch: {voice.pitch}x | Bass: {voice.bass}dB | Treble: {voice.treble}dB
+            Base: {voice.baseVoice} | Speed: {voice.speed}x | Pitch: {voice.pitch}x
           </span>
         </div>
         {voice.sampleAudioUrl && (
@@ -617,9 +497,8 @@ const ClonedVoiceItem: React.FC<ClonedVoiceItemProps> = ({ voice, onTestVoice })
             type="text"
             value={textToRead}
             onChange={(e) => setTextToRead(e.target.value)}
-            placeholder="Type text in English to read..."
+            placeholder="הקלד טקסט להקראה..."
             className="flex-1 p-2 text-sm bg-white border border-stone-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-            dir="ltr"
           />
           <button
             onClick={handleReadText}
@@ -629,19 +508,16 @@ const ClonedVoiceItem: React.FC<ClonedVoiceItemProps> = ({ voice, onTestVoice })
             {isReading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
             הקרא
           </button>
+          {isReading && (
+            <button
+              onClick={() => LocalTTSEngine.stop()}
+              className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+            >
+              <Square className="w-4 h-4 fill-current" />
+              עצור
+            </button>
+          )}
         </div>
-        {audioUrl && (
-          <div className="mt-3 animate-in fade-in">
-            <audio 
-              ref={audioRef} 
-              src={audioUrl} 
-              controls 
-              autoPlay 
-              onPlay={setupAudioGraph}
-              className="w-full h-10" 
-            />
-          </div>
-        )}
       </div>
     </div>
   );

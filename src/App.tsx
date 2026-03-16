@@ -71,26 +71,6 @@ export default function App() {
     return URL.createObjectURL(blob);
   };
 
-  const handleTestVoice = async (text: string, baseVoice: string) => {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Please read the following text aloud exactly as written: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: baseVoice },
-          },
-        },
-      },
-    });
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (base64Audio) {
-      return createWavUrlFromPcm(base64Audio, 24000);
-    }
-    throw new Error("No audio data returned");
-  };
-
   const handleAnalyzeAudio = async (audioBlob: Blob) => {
     try {
       const reader = new FileReader();
@@ -172,7 +152,6 @@ Ensure the response is valid JSON without any markdown formatting.`
           <VoiceCloningManager 
             onVoiceAdded={handleVoiceAdded} 
             clonedVoices={clonedVoices} 
-            onTestVoice={handleTestVoice}
             onAnalyzeAudio={handleAnalyzeAudio}
           />
         </div>
