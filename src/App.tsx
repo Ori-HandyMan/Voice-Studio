@@ -116,18 +116,18 @@ export default function App() {
               },
               {
                 text: `Analyze this voice recording and provide a detailed summary report of the voice characteristics. 
-Return the result as a JSON object with the following structure:
+Return the result as a JSON object with the following structure, and ensure all values are in Hebrew:
 {
-  "gender": "Estimated gender (e.g., Male, Female, Unknown)",
-  "ageGroup": "Estimated age group (e.g., Young Adult, Middle-aged, Senior)",
-  "pitch": "Description of pitch (e.g., High, Medium, Low, Deep)",
-  "speed": "Speaking rate (e.g., Fast, Moderate, Slow)",
-  "tone": "Vocal tone (e.g., Warm, Harsh, Smooth, Raspy, Clear)",
-  "emotion": "Detected emotion or mood (e.g., Calm, Energetic, Sad, Happy)",
-  "accent": "Detected accent or dialect (if any)",
-  "summary": "A short paragraph summarizing the overall voice profile."
+  "gender": "מגדר משוער (למשל: זכר, נקבה, לא ידוע)",
+  "ageGroup": "קבוצת גיל משוערת (למשל: צעיר, גיל העמידה, מבוגר)",
+  "pitch": "תיאור גובה הצליל (למשל: גבוה, בינוני, נמוך, עמוק)",
+  "speed": "קצב דיבור (למשל: מהיר, מתון, איטי)",
+  "tone": "טון הדיבור (למשל: חם, צורם, חלק, צרוד, ברור)",
+  "emotion": "רגש או מצב רוח שזוהה (למשל: רגוע, אנרגטי, עצוב, שמח)",
+  "accent": "מבטא או דיאלקט שזוהה (אם יש)",
+  "summary": "פסקה קצרה המסכמת את פרופיל הקול הכללי בעברית."
 }
-Ensure the response is valid JSON.`
+Ensure the response is valid JSON without any markdown formatting.`
               }
             ]
           }
@@ -155,9 +155,14 @@ Ensure the response is valid JSON.`
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
               <Activity className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-l from-indigo-600 to-violet-600">
-              מעבדת הקולות (Voice Lab)
-            </h1>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-l from-indigo-600 to-violet-600">
+                מעבדת הקולות (Voice Lab)
+              </h1>
+              <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium border border-indigo-200">
+                v1.1.0
+              </span>
+            </div>
           </div>
         </div>
       </header>
