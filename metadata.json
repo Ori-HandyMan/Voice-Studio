@@ -1,0 +1,5 @@
+{
+  "name": "Voice Studio",
+  "description": "Record audio, transcribe it, and generate TTS using Gemini.",
+  "requestFramePermissions": ["microphone"]
+}
